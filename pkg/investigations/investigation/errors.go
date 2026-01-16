@@ -65,3 +65,36 @@ func (e K8SClientError) Unwrap() error { return e.Err }
 func (e K8SClientError) Error() string {
 	return fmt.Sprintf("could not build k8s client for %s: %s", e.ClusterID, e.Err.Error())
 }
+
+type ManagementClusterNotFoundError struct {
+	ClusterID string
+	Err       error
+}
+
+func (e ManagementClusterNotFoundError) Error() string {
+	return fmt.Sprintf("could not retrieve management cluster for HCP cluster %s: %s", e.ClusterID, e.Err.Error())
+}
+
+type ManagementRestConfigError struct {
+	ClusterID           string
+	ManagementClusterID string
+	Err                 error
+}
+
+func (e ManagementRestConfigError) Unwrap() error { return e.Err }
+
+func (e ManagementRestConfigError) Error() string {
+	return fmt.Sprintf("could not create rest config for management cluster %s (HCP cluster: %s): %s", e.ManagementClusterID, e.ClusterID, e.Err.Error())
+}
+
+type ManagementOCClientError struct {
+	ClusterID           string
+	ManagementClusterID string
+	Err                 error
+}
+
+func (e ManagementOCClientError) Unwrap() error { return e.Err }
+
+func (e ManagementOCClientError) Error() string {
+	return fmt.Sprintf("could not create oc client for management cluster %s (HCP cluster: %s): %s", e.ManagementClusterID, e.ClusterID, e.Err.Error())
+}
