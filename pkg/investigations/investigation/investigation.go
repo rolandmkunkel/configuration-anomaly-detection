@@ -91,6 +91,7 @@ type Resources struct {
 	Notes                *notewriter.NoteWriter
 	OCClient             oc.Client
 	ManagementRestConfig *RestConfig
+	ManagementK8sClient  k8sclient.Client
 	ManagementOCClient   oc.Client
 	ManagementCluster    *cmv1.Cluster
 	ManagementClusterID  string
@@ -107,6 +108,7 @@ type ResourceBuilder interface {
 	WithOC() ResourceBuilder
 	WithNotes() ResourceBuilder
 	WithManagementRestConfig() ResourceBuilder
+	WithManagementK8sClient() ResourceBuilder
 	WithManagementOCClient() ResourceBuilder
 	Build() (*Resources, error)
 }
@@ -121,6 +123,7 @@ type ResourceBuilderT struct {
 	buildNotes                bool
 	buildLogger               bool
 	buildManagementRestConfig bool
+	buildManagementK8sClient  bool
 	buildManagementOCClient   bool
 
 	clusterId    string
@@ -173,6 +176,12 @@ func (r *ResourceBuilderT) WithK8sClient() ResourceBuilder {
 
 func (r *ResourceBuilderT) WithNotes() ResourceBuilder {
 	r.buildNotes = true
+	return r
+}
+
+func (r *ResourceBuilderT) WithManagementK8sClient() ResourceBuilder {
+	r.WithManagementRestConfig()
+	r.buildManagementK8sClient = true
 	return r
 }
 
@@ -256,7 +265,7 @@ func (r *ResourceBuilderT) Build() (*Resources, error) {
 	}
 
 	// Check if this is an HCP cluster and build management cluster resources if requested
-	if r.buildManagementRestConfig || r.buildManagementOCClient {
+	if r.buildManagementRestConfig || r.buildManagementOCClient || r.buildManagementK8sClient {
 		err = r.buildManagementClusterResources()
 		if err != nil {
 			r.buildErr = err
@@ -325,6 +334,18 @@ func (r *ResourceBuilderT) buildManagementClusterResources() error {
 		)
 		if err != nil {
 			return ManagementRestConfigError{
+				ClusterID:           r.clusterId,
+				ManagementClusterID: managementClusterID,
+				Err:                 err,
+			}
+		}
+	}
+
+	if r.buildManagementK8sClient && r.builtResources.ManagementK8sClient == nil {
+		logging.Infof("Creating k8s client for management cluster %s", managementClusterID)
+		r.builtResources.ManagementK8sClient, err = k8sclient.New(&r.builtResources.ManagementRestConfig.Config)
+		if err != nil {
+			return ManagementK8sClientError{
 				ClusterID:           r.clusterId,
 				ManagementClusterID: managementClusterID,
 				Err:                 err,
@@ -428,6 +449,10 @@ func (r *ResourceBuilderMock) WithK8sClient() ResourceBuilder {
 }
 
 func (r *ResourceBuilderMock) WithManagementRestConfig() ResourceBuilder {
+	return r
+}
+
+func (r *ResourceBuilderMock) WithManagementK8sClient() ResourceBuilder {
 	return r
 }
 
