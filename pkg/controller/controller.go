@@ -14,6 +14,7 @@ import (
 	"github.com/openshift/configuration-anomaly-detection/pkg/investigations/chgm"
 	"github.com/openshift/configuration-anomaly-detection/pkg/investigations/investigation"
 	"github.com/openshift/configuration-anomaly-detection/pkg/investigations/precheck"
+	"github.com/openshift/configuration-anomaly-detection/pkg/jira"
 	"github.com/openshift/configuration-anomaly-detection/pkg/logging"
 	"github.com/openshift/configuration-anomaly-detection/pkg/managedcloud"
 	"github.com/openshift/configuration-anomaly-detection/pkg/metrics"
@@ -76,6 +77,7 @@ type ControllerOptions struct {
 type Dependencies struct {
 	OCMClient           *ocm.SdkClient
 	BackplaneClient     backplane.Client
+	JiraClient          jira.Client
 	BackplaneURL        string
 	BackplaneProxy      string
 	AWSProxy            string
@@ -154,9 +156,16 @@ func initializeDependencies() (*Dependencies, error) {
 		return nil, fmt.Errorf("could not construct backplane-client")
 	}
 
+	// TODO: Add CAD_JIRA_TOKEN to the deployment/pipeline configuration and vault
+	var jiraClient jira.Client
+	if jiraToken := os.Getenv("CAD_JIRA_TOKEN"); jiraToken != "" {
+		jiraClient = jira.New(jiraToken)
+	}
+
 	return &Dependencies{
 		OCMClient:           ocmClient,
 		BackplaneClient:     bpClient,
+		JiraClient:          jiraClient,
 		BackplaneURL:        backplaneURL,
 		BackplaneProxy:      backplaneProxy,
 		AWSProxy:            awsProxy,
@@ -209,9 +218,10 @@ func NewController(opts ControllerOptions, deps *Dependencies) (Controller, erro
 		logger := logging.InitLogger(opts.Common.LogLevel, opts.Common.Identifier, "")
 
 		return &PagerDutyController{
-			config:   opts.Common,
-			pd:       *opts.Pd,
-			pdClient: pdClient,
+			config:     opts.Common,
+			pd:         *opts.Pd,
+			pdClient:   pdClient,
+			jiraClient: deps.JiraClient,
 			investigationRunner: investigationRunner{
 				ocmClient:    deps.OCMClient,
 				bpClient:     deps.BackplaneClient,
