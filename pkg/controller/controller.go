@@ -355,24 +355,30 @@ func (c *investigationRunner) runInvestigation(ctx context.Context, clusterId st
 		}
 	}
 
-	// Skip cert pre-check for investigations that use management cluster access,
-	// because backplane validates all RBAC (including hosted-cluster rules) against
-	// infrastructure cluster restrictions, rejecting secrets access.
-	certPreCheckSkip := []string{"mustgather", "restartcontrolplane", "etcddatabasequotalowspace"}
+	certPreCheckSkip := []string{"mustgather"}
 	certCheck := &expiredcertificates.Investigation{}
-	if inv.Name() != certCheck.Name() && !slices.Contains(certPreCheckSkip, inv.Name()) {
-		certResult, certErr := certCheck.Run(builder)
-		if certErr != nil {
-			logging.Warnf("Expired certificates pre-check failed: %v", certErr)
-		}
-		if len(certResult.Actions) > 0 {
-			if certErr = c.executeActions(builder, &certResult, certCheck.Name()); certErr != nil {
-				logging.Warnf("Failed to execute expired certificates actions: %v", certErr)
+	if pdClient != nil && inv.Name() != certCheck.Name() && !slices.Contains(certPreCheckSkip, inv.Name()) {
+		certBuilder, certBuilderErr := investigation.NewResourceBuilder(c.ocmClient, c.bpClient, clusterId, certCheck.Name(), c.dependencies.BackplaneURL, nil)
+		if certBuilderErr != nil {
+			logging.Warnf("Expired certificates pre-check: failed to create resource builder: %v", certBuilderErr)
+		} else {
+			if pdClient != nil {
+				certBuilder.WithPdClient(pdClient)
 			}
-		}
-		// Reset notes so cert check findings don't leak into the main investigation's NoteWriter
-		if r, _ := builder.Build(); r != nil {
-			r.Notes = nil
+			certResult, certErr := certCheck.Run(certBuilder)
+			if certErr != nil {
+				logging.Warnf("Expired certificates pre-check failed: %v", certErr)
+			}
+			if len(certResult.Actions) > 0 {
+				if certErr = c.executeActions(certBuilder, &certResult, certCheck.Name()); certErr != nil {
+					logging.Warnf("Failed to execute expired certificates actions: %v", certErr)
+				}
+			}
+			if certResources, _ := certBuilder.Build(); certResources != nil && certResources.RestConfig != nil {
+				if cleanErr := certResources.RestConfig.Clean(); cleanErr != nil {
+					logging.Warnf("Failed to clean expired certificates rest config: %v", cleanErr)
+				}
+			}
 		}
 	}
 
