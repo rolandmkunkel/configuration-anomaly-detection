@@ -96,7 +96,6 @@ func (c *Investigation) Run(rb investigation.ResourceBuilder) (investigation.Inv
 			logging.Errorf("CAD was unable to proceed with must-gather. Error: %v", err)
 			result.Actions = []types.Action{
 				executor.Note(fmt.Sprintf("CAD was unable to proceed with must-gather. Error: %v", err)),
-				executor.Escalate("Failed to access must-gather namespace on management cluster"),
 			}
 			return result, nil
 		}
@@ -110,9 +109,10 @@ func (c *Investigation) Run(rb investigation.ResourceBuilder) (investigation.Inv
 		err = r.OCClient.CreateMustGather(mustGatherCommandFlags)
 	}
 	if err != nil {
-		return result, investigation.WrapInfrastructure(
-			fmt.Errorf("failed to create must-gather: %w", err),
-			"K8s must-gather execution failed")
+		result.Actions = []types.Action{
+			executor.Note(fmt.Sprintf("CAD was unable to create the must-gather. Error: %v", err)),
+		}
+		return result, nil
 	}
 
 	mustGatherTarballName := fmt.Sprintf("%s-must-gather-%s.tar.gz", time.Now().UTC().Format(archiveTimestampLayout), r.Cluster.ID())
