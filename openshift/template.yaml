@@ -314,11 +314,22 @@ objects:
     - ""
     resources:
     - configmaps
-    - secrets
     verbs:
     - get
     - list
     - watch
+  - apiGroups:
+    - ""
+    resources:
+    - secrets
+    resourceNames:
+    - srep-ai-sa-token
+    - cad-ai-agent-aws-credentials
+    - cad-ocm-client-secret
+    - cad-pd-token
+    - cad-backplane-secret
+    verbs:
+    - get
   - apiGroups:
     - tekton.dev
     resources:
