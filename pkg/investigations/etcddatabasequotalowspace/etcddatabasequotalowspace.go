@@ -215,10 +215,12 @@ func (i *Investigation) Run(rb investigation.ResourceBuilder) (investigation.Inv
 	result.Actions = append(
 		executor.NoteAndReportFrom(r.Notes, r.Cluster.ID(), i.Name()),
 		backplaneReportAction,
-		resolveOrEscalate(r.PdClient,
-			"etcd warning alert - analysis complete, silencing as compaction/defrag usually resolves this",
-			"etcd critical alert - analysis complete, see report for details"),
 	)
+	if isWarningAlert(r.PdClient) {
+		result.Actions = append(result.Actions, executor.Silence("etcd warning alert - investigation and analysis complete, see report for details"))
+	} else {
+		result.Actions = append(result.Actions, executor.Escalate("etcd critical alert - analysis complete, see report for details"))
+	}
 
 	return result, nil
 }
@@ -351,12 +353,12 @@ func (i *Investigation) runHCPEtcdAnalysis(ctx context.Context, rb investigation
 		Labels:    []string{"success", "completed"},
 	}
 
-	result.Actions = append(
-		executor.NoteAndReportFrom(r.Notes, r.Cluster.ID(), i.Name()),
-		resolveOrEscalate(r.PdClient,
-			"HCP etcd warning alert - analysis complete, silencing as compaction/defrag usually resolves this",
-			"HCP etcd critical alert - analysis complete, see dynatrace logs for details"),
-	)
+	result.Actions = executor.NoteAndReportFrom(r.Notes, r.Cluster.ID(), i.Name())
+	if isWarningAlert(r.PdClient) {
+		result.Actions = append(result.Actions, executor.Silence("HCP etcd warning alert - investigation and analysis complete, see report for details"))
+	} else {
+		result.Actions = append(result.Actions, executor.Escalate("HCP etcd critical alert - analysis complete, see dynatrace logs for details"))
+	}
 	return result, nil
 }
 
@@ -377,8 +379,6 @@ func (i *Investigation) IsExperimental() bool {
 }
 
 // isWarningAlert checks if the PagerDuty incident title indicates a warning-severity alert.
-// The title is built from {{ .CommonLabels.severity | toUpper }} in the Alertmanager template,
-// so it preserves the original Prometheus severity even when make-it-critical rewrites the
 // PD event severity field. Warning alerts are silenced after investigation; critical alerts
 // are still escalated to SRE.
 func isWarningAlert(pdClient pagerduty.Client) bool {
@@ -386,14 +386,6 @@ func isWarningAlert(pdClient pagerduty.Client) bool {
 		return false
 	}
 	return strings.Contains(strings.ToUpper(pdClient.GetTitle()), "WARNING")
-}
-
-// resolveOrEscalate returns a Silence action for warning alerts or an Escalate action for critical alerts.
-func resolveOrEscalate(pdClient pagerduty.Client, silenceReason, escalateReason string) types.Action {
-	if isWarningAlert(pdClient) {
-		return executor.Silence(silenceReason)
-	}
-	return executor.Escalate(escalateReason)
 }
 
 // isHCPCluster checks if the cluster is a Hosted Control Plane (HCP) cluster
