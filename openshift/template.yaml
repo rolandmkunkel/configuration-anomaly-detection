@@ -27,6 +27,31 @@ parameters:
 - name: CAD_SA_ROLE_ARN
   value: ""
 objects:
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: cad-interceptor-network-policy
+  spec:
+    podSelector:
+      matchLabels:
+        app: cad-interceptor
+    policyTypes:
+    - Ingress
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            eventlistener: cad-event-listener
+      ports:
+      - protocol: TCP
+        port: 8080
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-user-workload-monitoring
+      ports:
+      - protocol: TCP
+        port: 8080
 - apiVersion: apps/v1
   kind: Deployment
   metadata:
