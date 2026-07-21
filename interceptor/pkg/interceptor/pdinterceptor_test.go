@@ -1,7 +1,10 @@
 package interceptor
 
 import (
+	"bytes"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -213,6 +216,19 @@ func stringContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestOversizedRequestBodyIsRejected(t *testing.T) {
+	oversizedBody := bytes.Repeat([]byte("A"), 10*1024*1024) // 10 MiB
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(oversizedBody))
+	rec := httptest.NewRecorder()
+
+	handler := CreateInterceptorHandler("TEST")
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected status 413 for oversized body, got %d: %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestShouldRunAIInvestigation(t *testing.T) {

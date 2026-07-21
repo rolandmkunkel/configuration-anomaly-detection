@@ -105,12 +105,14 @@ func (pdi *interceptorHandler) executeInterceptor(r *http.Request) ([]byte, *htt
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	var body bytes.Buffer
-	defer r.Body.Close() //nolint:errcheck
-	if _, err := io.Copy(&body, r.Body); err != nil {
+	const maxBodyBytes = 5 * 1024 * 1024 // 5 MiB
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, int64(maxBodyBytes)+1))
+	if err != nil {
 		return nil, pdi.internal("failed to read body", err)
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body.Bytes()))
+	if len(bodyBytes) > maxBodyBytes {
+		return nil, pdi.httpError(http.StatusRequestEntityTooLarge, "request body too large", fmt.Errorf("exceeds %d bytes", maxBodyBytes))
+	}
 
 	// originalReq is the original request that was sent to the interceptor,
 	// due to be unwrapped into a new header and body for signature verification.
@@ -118,7 +120,7 @@ func (pdi *interceptorHandler) executeInterceptor(r *http.Request) ([]byte, *htt
 		Body   string              `json:"body"`
 		Header map[string][]string `json:"header"`
 	}
-	if err := json.Unmarshal(body.Bytes(), &originalReq); err != nil {
+	if err := json.Unmarshal(bodyBytes, &originalReq); err != nil {
 		return nil, pdi.badRequest("failed to parse body", err)
 	}
 
@@ -144,7 +146,7 @@ func (pdi *interceptorHandler) executeInterceptor(r *http.Request) ([]byte, *htt
 
 	logging.Info("Signature verified successfully")
 
-	if err := json.Unmarshal(body.Bytes(), &ireq); err != nil {
+	if err := json.Unmarshal(bodyBytes, &ireq); err != nil {
 		return nil, pdi.badRequest("failed to parse body as InterceptorRequest", err)
 	}
 	logging.Debugf("Interceptor request body is: %s", ireq.Body)
