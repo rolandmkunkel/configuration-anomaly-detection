@@ -37,11 +37,16 @@ func init() {
 func main() {
 	logger := logging.InitLogger(logLevelEnv, pipelineNameEnv, "")
 
+	token := os.Getenv("PD_SIGNATURE")
+	if token == "" {
+		logger.Fatal("PD_SIGNATURE environment variable missing")
+	}
+
 	// set up signals so we handle the first shutdown signal gracefully
 	ctx := signals.NewContext()
 
 	mux := http.NewServeMux()
-	mux.Handle("/", interceptor.CreateInterceptorHandler())
+	mux.Handle("/", interceptor.CreateInterceptorHandler(token))
 	mux.HandleFunc("/ready", readinessHandler)
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{Registry: metrics.Registry}))
 
