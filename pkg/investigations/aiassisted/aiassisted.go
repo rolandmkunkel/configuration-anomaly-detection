@@ -144,7 +144,6 @@ func (c *Investigation) Run(rb investigation.ResourceBuilder) (investigation.Inv
 
 	// Log AI invocation
 	logging.Infof("🤖 Invoking AI agent for incident %s", incidentID)
-	logging.Infof("Payload: %s", string(payloadJSON))
 
 	// Request streaming response format
 	acceptHeader := "text/event-stream"
@@ -170,20 +169,20 @@ func (c *Investigation) Run(rb investigation.ResourceBuilder) (investigation.Inv
 
 	// Read and collect streaming response
 	logging.Info("🤖 Receiving AI response...")
-	var aiResponse strings.Builder
-	aiResponse.WriteString("🤖 AI Investigation Results 🤖\n")
-	fmt.Fprintf(&aiResponse, "Session ID: %s\n", sessionID)
-	fmt.Fprintf(&aiResponse, "Runtime: %s\n", aiConfig.RuntimeARN)
+	logging.Infof("🤖 AI Investigation Results")
+	logging.Infof("Session ID: %s", sessionID)
+	logging.Infof("Runtime: %s", aiConfig.RuntimeARN)
 	if aiConfig.Version != "" {
-		fmt.Fprintf(&aiResponse, "Agent Version: %s\n", aiConfig.Version)
+		logging.Infof("Agent Version: %s", aiConfig.Version)
 	}
 	if aiConfig.OpsSopVersion != "" {
-		fmt.Fprintf(&aiResponse, "ops-sop Version: %s\n", aiConfig.OpsSopVersion)
+		logging.Infof("ops-sop Version: %s", aiConfig.OpsSopVersion)
 	}
 	if aiConfig.RosaPluginsVersion != "" {
-		fmt.Fprintf(&aiResponse, "rosa-plugins Version: %s\n", aiConfig.RosaPluginsVersion)
+		logging.Infof("rosa-plugins Version: %s", aiConfig.RosaPluginsVersion)
 	}
-	aiResponse.WriteString("\n")
+
+	var aiResponse strings.Builder
 
 	scanner := bufio.NewScanner(output.Response)
 	for scanner.Scan() {
@@ -195,20 +194,49 @@ func (c *Investigation) Run(rb investigation.ResourceBuilder) (investigation.Inv
 
 	if err := scanner.Err(); err != nil {
 		logging.Errorf("Error reading AI response stream: %v", err)
-		notes.AppendWarning("Error reading AI response stream: %v", err)
+		notes.AppendWarning("Error reading AI response stream: %v\n\nRaw output:\n%s", err, aiResponse.String())
+		result.Actions = executor.NoteAndReportFrom(notes, clusterID, c.Name())
+		return result, nil
 	}
 
 	logging.Info("🤖 AI investigation complete")
-	logging.Infof("AI Output:\n%s", aiResponse.String())
+
+	// Unwrap double-encoded JSON from BedrockAgentCore SDK.
+	// The SDK wraps Cora's JSON in another JSON string, so we receive:
+	//   "{\"investigation_id\": ...}" instead of {"investigation_id": ...}
+	// Unmarshal into a string to strip outer quotes and unescape.
+	responseStr := strings.TrimSpace(aiResponse.String())
+	var unquoted string
+	if err := json.Unmarshal([]byte(responseStr), &unquoted); err == nil {
+		responseStr = unquoted
+	}
+
+	// Log raw response for recoverability
+	logging.Infof("Raw AI response length: %d chars", len(responseStr))
+
+	// Parse JSON response from Cora
+	var investigationResult CoraInvestigationResult
+	if err := json.Unmarshal([]byte(responseStr), &investigationResult); err != nil {
+		rawOutput := responseStr
+		if len(rawOutput) > 60000 {
+			rawOutput = rawOutput[:60000] + "\n... [truncated]"
+		}
+		notes.AppendWarning("Failed to parse Cora JSON response: %v\n\nRaw output:\n%s", err, rawOutput)
+		result.Actions = executor.NoteAndReportFrom(notes, clusterID, c.Name())
+		return result, nil
+	}
+
+	// Format to human-readable markdown
+	formattedReport := FormatInvestigationReport(&investigationResult)
 
 	// Add simple note about AI automation completion
 	notes.AppendAutomation("AI automation completed. Check recent cluster reports for AI investigation details: 'osdctl cluster reports list --cluster-id %s'", clusterID)
 
-	// Create backplane report action with the AI investigation results
+	// Create backplane report action with formatted output
 	backplaneReportAction := &executor.BackplaneReportAction{
 		ClusterID: r.Cluster.ExternalID(),
 		Summary:   fmt.Sprintf("CAD Investigation: AI-Assisted Analysis for %s", alertName),
-		Data:      aiResponse.String(),
+		Data:      formattedReport,
 	}
 
 	// Return actions for executor to handle

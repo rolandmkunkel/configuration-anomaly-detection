@@ -1,6 +1,7 @@
 package aiassisted
 
 import (
+	"encoding/json"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -114,6 +115,126 @@ var _ = Describe("aiassisted", func() {
 				Expect(result.Actions).NotTo(BeEmpty())
 				Expect(hasEscalateAction(result.Actions)).To(BeTrue())
 				Expect(hasNoteAction(result.Actions)).To(BeTrue())
+			})
+		})
+	})
+
+	// Happy Path to Test Investigation Report Format
+	Describe("FormatInvestigationReport", func() {
+		Context("when formatting a complete investigation result", func() {
+			It("should create human-readable markdown with all fields", func() {
+				command := "oc apply -f fix.yaml"
+
+				result := &CoraInvestigationResult{
+					ClusterID:  "test-cluster-abc",
+					AlertName:  "ClusterOperatorDegraded",
+					Summary:    "The cluster-samples-operator is degraded due to missing ImageStreams",
+					Confidence: "high",
+					Reasoning:  "Root cause analysis shows the operator cannot find required ImageStreams",
+					Evidence:   "Checked cluster-samples-operator logs and found missing ImageStream errors",
+					RemediationSteps: []RemediationStep{
+						{
+							Action:  "Restore default ImageStreams",
+							Command: &command,
+						},
+					},
+					NeedsEscalation: true,
+				}
+
+				output := FormatInvestigationReport(result)
+
+				Expect(output).To(ContainSubstring("test-cluster-abc"))
+				Expect(output).To(ContainSubstring("ClusterOperatorDegraded"))
+				Expect(output).To(ContainSubstring("The cluster-samples-operator is degraded"))
+				Expect(output).To(ContainSubstring("HIGH"))
+				Expect(output).To(ContainSubstring("Restore default ImageStreams"))
+				Expect(output).To(ContainSubstring("oc apply -f fix.yaml"))
+				Expect(output).To(ContainSubstring("⚠️ ESCALATE"))
+			})
+		})
+
+		// Tests whether Go handles "null" command case correctly
+		Context("when handling null command", func() {
+			It("should skip code block when command is nil", func() {
+				result := &CoraInvestigationResult{
+					ClusterID:  "test-cluster",
+					AlertName:  "TestAlert",
+					Summary:    "Issue found",
+					Confidence: "high",
+					Reasoning:  "Manual verification required",
+					Evidence:   "System logs inconclusive",
+					RemediationSteps: []RemediationStep{
+						{
+							Action:  "Manually verify the configuration in console",
+							Command: nil,
+						},
+					},
+					NeedsEscalation: false,
+				}
+
+				output := FormatInvestigationReport(result)
+
+				Expect(output).To(ContainSubstring("Manually verify the configuration"))
+				Expect(output).ToNot(ContainSubstring("```bash"))
+			})
+		})
+
+		// Tests empty steps array
+		Context("when remediation has no steps", func() {
+			It("should show no action steps available message", func() {
+				result := &CoraInvestigationResult{
+					ClusterID:        "test-cluster",
+					AlertName:        "TestAlert",
+					Summary:          "Self-healing succeeded",
+					Confidence:       "high",
+					Reasoning:        "System automatically resolved the issue",
+					Evidence:         "Cluster operators returned to healthy state",
+					RemediationSteps: []RemediationStep{},
+					NeedsEscalation:  false,
+				}
+
+				output := FormatInvestigationReport(result)
+
+				Expect(output).To(ContainSubstring("No action steps available"))
+			})
+		})
+
+		// Tests JSON parsing with real Cora output.
+		// If only err = nil --> parsing worked.
+		// If error != nil --> parsing failed
+		Context("when parsing real Cora JSON output", func() {
+			It("should correctly unmarshal JSON into structs", func() {
+				jsonInput := `{
+					"investigation_id": "inv-quick-schema-test",
+					"cluster_id": "test-cluster",
+					"alert_name": "QuickSchemaTest",
+					"timestamp": "2026-07-06T20:11:38.578390Z",
+					"duration_seconds": 22.301245596,
+					"summary": "Test investigation completed successfully",
+					"confidence": "high",
+					"reasoning": "This investigation was explicitly marked as a quick schema test",
+					"evidence": "Investigation request received with the following parameters",
+					"remediation_steps": [
+						{
+							"action": "No remediation required - this was a test investigation to validate the schema",
+							"command": null
+						}
+					],
+					"needs_escalation": false,
+					"escalation_reason": null
+				}`
+
+				var result CoraInvestigationResult
+				err := json.Unmarshal([]byte(jsonInput), &result)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result.ClusterID).To(Equal("test-cluster"))
+				Expect(result.AlertName).To(Equal("QuickSchemaTest"))
+				Expect(result.Summary).To(Equal("Test investigation completed successfully"))
+				Expect(result.Confidence).To(Equal("high"))
+				Expect(result.RemediationSteps).To(HaveLen(1))
+				Expect(result.RemediationSteps[0].Command).To(BeNil())
+				Expect(result.NeedsEscalation).To(BeFalse())
 			})
 		})
 	})
