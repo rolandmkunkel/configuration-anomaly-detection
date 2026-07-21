@@ -57,10 +57,12 @@ type Organization struct {
 	EscalationPolicy string   `json:"escalation_policy"`
 }
 
-type interceptorHandler struct{}
+type interceptorHandler struct {
+	PDToken string
+}
 
-func CreateInterceptorHandler() http.Handler {
-	return &interceptorHandler{}
+func CreateInterceptorHandler(pdToken string) http.Handler {
+	return &interceptorHandler{PDToken: pdToken}
 }
 
 func (pdi interceptorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -135,8 +137,7 @@ func (pdi *interceptorHandler) executeInterceptor(r *http.Request) ([]byte, *htt
 
 	logging.Debug("Unwrapped Request body: ", originalReq.Body)
 
-	token, _ := os.LookupEnv("PD_SIGNATURE")
-	err = webhookv3.VerifySignature(extractedRequest, token)
+	err = webhookv3.VerifySignature(extractedRequest, pdi.PDToken)
 	if err != nil {
 		return nil, pdi.badRequest("failed to verify signature", err)
 	}
