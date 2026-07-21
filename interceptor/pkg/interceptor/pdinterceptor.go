@@ -19,26 +19,30 @@ import (
 	"github.com/openshift/configuration-anomaly-detection/pkg/logging"
 	"github.com/openshift/configuration-anomaly-detection/pkg/ocm"
 	"github.com/openshift/configuration-anomaly-detection/pkg/pagerduty"
+	"github.com/prometheus/client_golang/prometheus"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	"github.com/tektoncd/triggers/pkg/interceptors"
 	"google.golang.org/grpc/codes"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 // ErrInvalidContentType is returned when the content-type is not a JSON body.
 var ErrInvalidContentType = errors.New("form parameter encoding not supported, please change the hook to send JSON payloads")
 
-type ErrorCodeWithReason struct {
-	ErrorCode int
-	Reason    string
-}
+var (
+	requestsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cad_interceptor_requests_total",
+		Help: "Number of times CAD interceptor has been called (through a PagerDuty webhook, normally)",
+	})
 
-type InterceptorStats struct {
-	RequestsCount               uint64
-	CodeWithReasonToErrorsCount map[ErrorCodeWithReason]int
-}
+	errorsCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "cad_interceptor_errors_total",
+		Help: "Number of times CAD interceptor has been failed to process a request",
+	}, []string{"error_code", "reason"})
+)
 
-func CreateInterceptorStats() *InterceptorStats {
-	return &InterceptorStats{CodeWithReasonToErrorsCount: make(map[ErrorCodeWithReason]int)}
+func init() {
+	metrics.Registry.MustRegister(requestsCounter, errorsCounter)
 }
 
 // OrgEscalationMapping represents the structure of the org-to-policy mapping
@@ -53,16 +57,14 @@ type Organization struct {
 	EscalationPolicy string   `json:"escalation_policy"`
 }
 
-type interceptorHandler struct {
-	stats *InterceptorStats
-}
+type interceptorHandler struct{}
 
-func CreateInterceptorHandler(stats *InterceptorStats) http.Handler {
-	return &interceptorHandler{stats}
+func CreateInterceptorHandler() http.Handler {
+	return &interceptorHandler{}
 }
 
 func (pdi interceptorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	pdi.stats.RequestsCount++
+	requestsCounter.Inc()
 
 	b, httpErr := pdi.executeInterceptor(r)
 	if httpErr != nil {
@@ -83,7 +85,7 @@ type httpError struct {
 }
 
 func (pdi *interceptorHandler) httpError(errorCode int, reason string, err error) *httpError {
-	pdi.stats.CodeWithReasonToErrorsCount[ErrorCodeWithReason{errorCode, reason}]++
+	errorsCounter.WithLabelValues(strconv.Itoa(errorCode), reason).Inc()
 
 	return &httpError{code: errorCode, err: fmt.Errorf("%s: %w", reason, err)}
 }

@@ -40,11 +40,9 @@ func main() {
 	// set up signals so we handle the first shutdown signal gracefully
 	ctx := signals.NewContext()
 
-	stats := interceptor.CreateInterceptorStats()
 	mux := http.NewServeMux()
-	mux.Handle("/", interceptor.CreateInterceptorHandler(stats))
+	mux.Handle("/", interceptor.CreateInterceptorHandler())
 	mux.HandleFunc("/ready", readinessHandler)
-	interceptor.CreateAndRegisterMetricsCollector(stats)
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{Registry: metrics.Registry}))
 
 	srv := &http.Server{

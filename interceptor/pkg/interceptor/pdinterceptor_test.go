@@ -134,27 +134,23 @@ func TestClusterExists(t *testing.T) {
 		clusterID      string
 		clusterIDErr   error
 		clusterInfoErr error
-		expectContinue *bool                // nil means we expect no response (success)
-		expectErrorKey *ErrorCodeWithReason // nil means no error stat expected
+		expectContinue *bool // nil means we expect no response (success)
 	}{
 		{
 			name:           "scenario 1: RetrieveClusterID fails — short-circuit Continue:false",
 			clusterIDErr:   errors.New("no cluster ID found"),
 			expectContinue: boolPtr(false),
-			expectErrorKey: &ErrorCodeWithReason{404, "no cluster id in pagerduty"},
 		},
 		{
 			name:           "scenario 2: RetrieveClusterID ok but GetClusterInfo fails — short-circuit Continue:false",
 			clusterID:      "cluster-abc",
 			clusterInfoErr: errors.New("cluster not found in OCM"),
 			expectContinue: boolPtr(false),
-			expectErrorKey: &ErrorCodeWithReason{404, "no cluster in OCM"},
 		},
 		{
 			name:           "scenario 3: both succeed — nil response, clusterID returned",
 			clusterID:      "cluster-abc",
 			expectContinue: nil,
-			expectErrorKey: nil,
 		},
 	}
 
